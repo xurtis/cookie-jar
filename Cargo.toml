@@ -2,7 +2,7 @@
 name = "cookie-jar"
 version = "0.1.0"
 authors = ["Curtis Millar <curtis@curtism.me>"]
-description = "Implement a RFC6265 compliant cookie store."
+description = "Implementation of a RFC6265 compliant cookie store."
 repository = "https://github.com/xurtis/cookie-jar"
 keys = [ "cookie", "client", "http" ]
 categories = [
