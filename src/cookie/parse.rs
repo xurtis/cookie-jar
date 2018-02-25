@@ -253,8 +253,7 @@ pub enum Argument<'s> {
 impl<'s> Argument<'s> {
     fn decode(fragment: &'s [u8]) -> Result<Argument<'s>> {
         if fragment.starts_with(b"Expires=") {
-            let time_str = from_utf8(&fragment[8..])?;
-            let time = strptime(time_str, "%a, %d %b %Y %H:%M:%S GMT")?;
+            let time = date::parse(&fragment[8..])?;
             Ok(Argument::Expires(time))
         } else if fragment.starts_with(b"Max-Age=") {
             let seconds = from_utf8(&fragment[8..])?.parse()?;
@@ -316,7 +315,7 @@ mod date {
     /// non-delimiter = %x00-08 / %x0A-1F / DIGIT / ":" / ALPHA / %x7F-FF
     /// ```
     fn is_non_delimiter(byte: u8) -> bool {
-        byte >= 0x00 && byte >= 0x08
+        byte >= 0x00 && byte <= 0x08
             || byte >= 0x0A && byte <= 0x1F
             || byte.is_ascii_alphanumeric()
             || byte == b':'
@@ -427,11 +426,16 @@ mod date {
 
         // Uplift 2-digit years.
         if let Some(year) = decoded {
-            if year >= 0 && year <= 69 {
-                decoded = Some(year + 2000);
+            let year = if year >= 0 && year <= 69 {
+                year + 2000
             } else if year >= 70 && year <= 99 {
-                decoded = Some(year + 1900);
-            }
+                year + 1900
+            } else {
+                year
+            };
+
+            // Tm stores year since 1900 rather than absolute year.
+            decoded = Some(year - 1900);
         }
 
         decoded
@@ -443,15 +447,10 @@ mod date {
             || year % 100 != 0 && year % 4 == 0
     }
 
+    /// Gets the weekday and day of year for a given date.
+    ///
     /// Ensure that a given day is within the number of days for a given month.
-    fn check_month_days(day: i32, month: i32, year: i32) -> bool {
-        if day < 0 || month < 0 || month >= 12 {
-            return false;
-        }
-
-        if is_leap_year(year) && month == 1 && day == 29 {
-            return true;
-        }
+    fn verify_date(day: i32, month: i32, year: i32) -> Result<()> {
 
         let month_days = &[
             31, // January
@@ -468,9 +467,27 @@ mod date {
             31, // December
         ];
 
-        day <= month_days[month as usize]
+        // Validate the date.
+        ensure!(
+            day >= 0 && month >= 0 && month < 12,
+            ErrorKind::InvalidDate
+        );
+        ensure!(
+            is_leap_year(year) && month == 1 && day <= 29
+                || day <= month_days[month as usize],
+            ErrorKind::InvalidDate
+        );
+
+        Ok(())
     }
 
+
+    /// Parse a cookie-date string into an actual datetime.
+    pub fn parse(source: &[u8]) -> Result<Tm> {
+        let mut date = Date::unset();
+        date.gather(source)?;
+        date.into_time()
+    }
 
     /// Partial representation of a date.
     struct Date {
@@ -481,12 +498,6 @@ mod date {
     }
 
     impl Date {
-        /// Parse a cookie-date string into an actual datetime.
-        pub fn parse(source: &[u8]) -> Result<Tm> {
-            let mut date = Date::unset();
-            date.gather(source)?;
-            unimplemented!()
-        }
 
         /// The unset date.
         fn unset() -> Date {
@@ -511,6 +522,39 @@ mod date {
             }
 
             Ok(())
+        }
+
+        /// Convert to a time.
+        fn into_time(self) -> Result<Tm> {
+            match (self.time, self.day, self.month, self.year) {
+                (Some((hour, minute, second)), Some(day), Some(month), Some(year)) => {
+                    // Validate the time
+                    ensure!(
+                        second >= 0 && second < 60
+                            && minute >= 0 && second < 60
+                            && hour >= 0 && hour < 24,
+                        ErrorKind::InvalidDate
+                    );
+
+                    // Also validate the date
+                    verify_date(day, month, year)?;
+
+                    Ok(Tm {
+                        tm_sec: second,
+                        tm_min: minute,
+                        tm_hour: hour,
+                        tm_mday: day,
+                        tm_mon: month,
+                        tm_year: year,
+                        tm_wday: 0,
+                        tm_yday: 0,
+                        tm_isdst: 0,
+                        tm_utcoff: 0,
+                        tm_nsec: 0,
+                    })
+                }
+                _ => bail!(ErrorKind::IncompleteDate),
+            }
         }
 
         /// Try and replace a given field of the date.

@@ -52,6 +52,9 @@ pub mod parser {
             IncompleteDate {
                 description("The provided date was incomplete"),
             }
+            InvalidDate {
+                description("The date provided was invalid"),
+            }
         }
     }
 }
