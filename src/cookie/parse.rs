@@ -395,8 +395,8 @@ mod date {
 
     /// Attempt to decode a number of digits.
     fn decode_digits(token: &[u8], min: usize, max: usize) -> Option<(i32, &[u8])> {
-        if token.len() < min || token[0].is_ascii_digit() {
-            // Token not long enough
+        if token.len() < min || !token[0].is_ascii_digit() {
+            // Token not long enough or doesn't start with digit
             return None;
         }
 
