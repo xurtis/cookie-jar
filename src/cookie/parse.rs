@@ -635,6 +635,31 @@ mod date {
             }
         }
     }
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+        use time::strptime;
+
+        #[test]
+        fn date_parse () {
+            let tests = &[
+                (
+                    parse(b"\
+                        I do delcare that this cookie doth expire on the 14th day of January. \
+                        On that day it shall entirely expire when the clock reads 12:52:13. \
+                        It shall not exist beyong the 32nd year of the 21st century\
+                    ").unwrap(),
+                    strptime("2032-01-14 12:52:13", "%Y-%m-%d %H:%M:%S").unwrap(),
+                ),
+            ];
+
+            for &(parsed, expected) in tests {
+                assert_eq!(parsed, expected);
+            }
+
+        }
+    }
 }
 
 #[cfg(test)]
