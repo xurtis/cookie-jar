@@ -340,7 +340,8 @@ mod date {
             .map(|(hour, (minute, remaining))| ((hour, minute), remaining))
             .and_then(cookie_time_continues)
             .and_then(decode_next_time_field)
-            .map(|((hour, minute), (second, _))| (hour, minute, second))
+            .map(|((hour, minute), (second, remaining))| ((hour, minute, second), remaining))
+            .and_then(invalid_if_trailing_digit)
     }
 
     /// Check that there are further valid characters in the cookie-time.
@@ -358,6 +359,16 @@ mod date {
         decode_time_field(&remaining[1..]).map(|value| (date, value))
     }
 
+    /// Trailing digits invalidate fields.
+    fn invalid_if_trailing_digit<T>(decoded: (T, &[u8])) -> Option<T> {
+        let (value, remaining) = decoded;
+        if remaining.len() > 0 && remaining[1].is_ascii_digit() {
+            None
+        } else {
+            Some(value)
+        }
+    }
+
     /// Attempt to decode a time field.
     fn decode_time_field(source: &[u8]) -> Option<(i32, &[u8])> {
         decode_digits(source, 1, 2)
@@ -365,7 +376,8 @@ mod date {
 
     /// Attempt to decode a day of month field.
     fn decode_day(token: &[u8]) -> Option<i32> {
-        decode_time_field(token).map(|(day, _)| day)
+        decode_time_field(token)
+            .and_then(invalid_if_trailing_digit)
     }
 
     /// Attempt to decode a month by abbreviated name case insensitively.
@@ -422,7 +434,8 @@ mod date {
 
     /// Attempt to decode a year as a 2-4 digit value.
     fn decode_year(token: &[u8]) -> Option<i32> {
-        let mut decoded = decode_digits(token, 2, 4).map(|(y, _)| y);
+        let mut decoded = decode_digits(token, 2, 4)
+            .and_then(invalid_if_trailing_digit);
 
         // Uplift 2-digit years.
         if let Some(year) = decoded {
