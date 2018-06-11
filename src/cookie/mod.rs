@@ -43,7 +43,7 @@ impl Cookie {
 
         for arg in args {
             match (arg?, use_max_age) {
-                (Argument::Expires(time), true) => {
+                (Argument::Expires(time), false) => {
                     cookie.expiry = Expires::AtUtc(time);
                 },
                 (Argument::MaxAge(duration), _) => {
@@ -79,7 +79,7 @@ impl Cookie {
             pair: pair,
             expiry: Expires::Never,
             domain: Domain::from_host(domain)?,
-            path: origin.path().to_string(), // Should be directory.
+            path: url_dir_path(origin).to_string(),
             secure: false,
             http_only: false,
         })
@@ -205,6 +205,17 @@ impl Domain {
     }
 }
 
+/// Get the directory of the path of a Url.
+fn url_dir_path(url: &Url) -> &str {
+    let path = url.path();
+    if path.ends_with('/') {
+        path
+    } else {
+        let end = path.rfind('/').unwrap();
+        &path[0..=end]
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -217,7 +228,7 @@ mod test {
             (
                 "SID=31d4d96e407aad42",
                 Cookie {
-                    pair: "sid=31d4d96e407aad42".parse().unwrap(),
+                    pair: "SID=31d4d96e407aad42".parse().unwrap(),
                     expiry: Expires::Never,
                     domain: Domain::Host(Host::Domain("www.example.com".to_string())),
                     path: "/path/to/".to_string(),
@@ -228,7 +239,7 @@ mod test {
             (
                 "SID=31d4d96e407aad42; Path=/; Domain=example.com",
                 Cookie {
-                    pair: "sid=31d4d96e407aad42".parse().unwrap(),
+                    pair: "SID=31d4d96e407aad42".parse().unwrap(),
                     expiry: Expires::Never,
                     domain: Domain::Suffix("example.com".to_string()),
                     path: "/".to_string(),
@@ -239,7 +250,7 @@ mod test {
             (
                 "SID=31d4d96e407aad42; Path=/; Secure; HttpOnly",
                 Cookie {
-                    pair: "sid=31d4d96e407aad42".parse().unwrap(),
+                    pair: "SID=31d4d96e407aad42".parse().unwrap(),
                     expiry: Expires::Never,
                     domain: Domain::Host(Host::Domain("www.example.com".to_string())),
                     path: "/".to_string(),
@@ -252,7 +263,7 @@ mod test {
                 Cookie {
                     pair: "lang=en-US".parse().unwrap(),
                     expiry: Expires::Never,
-                    domain: Domain::Host(Host::Domain("www.example.com".to_string())),
+                    domain: Domain::Suffix("example.com".to_string()),
                     path: "/".to_string(),
                     secure: false,
                     http_only: false,

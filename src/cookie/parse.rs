@@ -643,19 +643,34 @@ mod date {
 
         #[test]
         fn date_parse () {
-            let tests = &[
+            let tests: &[(&str, &str)] = &[
                 (
-                    parse(b"\
+                    "\
                         I do delcare that this cookie doth expire on the 14th day of January. \
                         On that day it shall entirely expire when the clock reads 12:52:13. \
-                        It shall not exist beyong the 32nd year of the 21st century\
-                    ").unwrap(),
-                    strptime("2032-01-14 12:52:13", "%Y-%m-%d %H:%M:%S").unwrap(),
+                        It shall not exist beyond the 32nd year of the 21st century\
+                    ",
+                    "2032-01-14 12:52:13",
+                ),
+                (
+                    "Sun, 06 Nov 1994 08:49:37 GMT",
+                    "1994-11-06 08:49:37",
+                ),
+                (
+                    "Sunday, 06-Nov-94 08:49:37 GMT",
+                    "1994-11-06 08:49:37",
+                ),
+                (
+                    "Sun Nov  6 08:49:37 1994",
+                    "1994-11-06 08:49:37",
                 ),
             ];
 
             for &(parsed, expected) in tests {
-                assert_eq!(parsed, expected);
+                assert_eq!(
+                    parse(parsed.as_bytes()).expect(&format!("Couldn't parse cookie date '{}'", parsed)),
+                    strptime(expected, "%Y-%m-%d %H:%M:%S").expect("couldn't parse string date"),
+                );
             }
 
         }
