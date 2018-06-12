@@ -2,11 +2,11 @@
 
 mod parse;
 
-use ::error::*;
+use self::parse::{process_cookie, Argument, CookiePair};
+use error::*;
 use idna::domain_to_ascii;
-use self::parse::{Argument, CookiePair, process_cookie};
 use std::str::FromStr;
-use time::{Tm, Duration, now_utc};
+use time::{now_utc, Duration, Tm};
 use url::{Host, Url};
 
 /// This is the form that the cookie is represented in within the jar.
@@ -45,20 +45,20 @@ impl Cookie {
             match (arg?, use_max_age) {
                 (Argument::Expires(time), false) => {
                     cookie.expiry = Expires::AtUtc(time);
-                },
+                }
                 (Argument::MaxAge(duration), _) => {
                     cookie.expiry = Expires::AtUtc(now_utc() + duration);
                     use_max_age = true;
-                },
+                }
                 (Argument::Domain(domain), _) => {
                     cookie.domain = Domain::Suffix(domain.to_string());
-                },
+                }
                 (Argument::Path(path), _) => {
                     cookie.path = path.to_string();
-                },
+                }
                 (Argument::Secure, _) => {
                     cookie.secure = true;
-                },
+                }
                 (Argument::HttpOnly, _) => {
                     cookie.http_only = true;
                 }
@@ -72,7 +72,8 @@ impl Cookie {
 
     /// Default value for a cookie with no additional flags.
     fn default(pair: CookiePair, origin: &Url) -> Result<Cookie> {
-        let domain = origin.host()
+        let domain = origin
+            .host()
             .ok_or_else(|| ErrorKind::InvalidOrigin(origin.clone()))?
             .to_owned();
         Ok(Cookie {
@@ -129,9 +130,7 @@ impl Cookie {
     pub fn expired(&self) -> bool {
         match self.expiry {
             Expires::Never => false,
-            Expires::AtUtc(expiry) => {
-                now_utc() >= expiry
-            }
+            Expires::AtUtc(expiry) => now_utc() >= expiry,
         }
     }
 
@@ -180,7 +179,7 @@ pub enum Expires {
     /// The cookie expires at a specified time from UTC.
     AtUtc(Tm),
     /// The cookie never expires.
-    Never
+    Never,
 }
 
 /// Domain for a specific cookie
@@ -195,10 +194,9 @@ pub enum Domain {
 impl Domain {
     fn from_host(host: Host) -> Result<Domain> {
         let host = match host {
-            Host::Domain(domain) => Host::Domain(
-                domain_to_ascii(&domain)
-                .map_err(ErrorKind::InvalidDomain)?
-            ),
+            Host::Domain(domain) => {
+                Host::Domain(domain_to_ascii(&domain).map_err(ErrorKind::InvalidDomain)?)
+            }
             host => host,
         };
         Ok(Domain::Host(host))
