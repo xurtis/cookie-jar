@@ -5,8 +5,7 @@ mod parse;
 use self::parse::{process_cookie, Argument, CookiePair};
 use error::*;
 use idna::domain_to_ascii;
-use std::str::FromStr;
-use time::{now_utc, Duration, Tm};
+use time::{now_utc, Tm};
 use url::{Host, Url};
 
 /// This is the form that the cookie is represented in within the jar.
@@ -128,9 +127,14 @@ impl Cookie {
 
     /// Check if the cookie has expired.
     pub fn expired(&self) -> bool {
+        self.expired_since(now_utc())
+    }
+
+    /// Check if the cookie was expired after a given time.
+    pub fn expired_since(&self, time: Tm) -> bool {
         match self.expiry {
             Expires::Never => false,
-            Expires::AtUtc(expiry) => now_utc() >= expiry,
+            Expires::AtUtc(expiry) => time >= expiry,
         }
     }
 

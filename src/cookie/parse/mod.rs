@@ -298,12 +298,13 @@ mod test {
     fn fragment_iterator() {
         let (cookie, args) = process_cookie(
             "\
-             some=thing; \
-             fragment; \
-             Domain=google.com; \
-             Expires=Sun, 25 Feb 2018 01:36:48 GMT; \
-             Max-Age=3200; \
-             other=fragment",
+                 some=thing; \
+                 fragment; \
+                 Domain=google.com; \
+                 Expires=Sun, 25 Feb 2018 01:36:48 GMT; \
+                 Max-Age=3200; \
+                 other=fragment \
+            ",
         ).unwrap();
         let args: Vec<Argument<'static>> = args.map(Result::unwrap).collect();
         let expected_cookie = CookiePair {
