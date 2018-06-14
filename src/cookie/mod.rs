@@ -2,27 +2,231 @@
 
 mod parse;
 
-use self::parse::{process_cookie, Argument, CookiePair};
+use self::parse::{process_cookie, Argument};
+pub(crate) use self::parse::Pair;
 use error::*;
 use idna::domain_to_ascii;
 use time::{now_utc, Tm};
 use url::{Host, Url};
 
+/// A builder for a cookie.
+#[derive(Debug)]
+pub enum Builder {
+    /// A partially constructed cookie.
+    Cookie(Cookie),
+
+    /// An error.
+    Err(Error),
+}
+
+impl From<parser::Error> for Builder {
+    fn from(e: parser::Error) -> Builder {
+        Builder::Err(e.into())
+    }
+}
+
+impl From<Error> for Builder {
+    fn from(e: Error) -> Builder {
+        Builder::Err(e)
+    }
+}
+
+macro_rules! try_build {
+    ($result:expr) => (
+        match $result {
+            Err(e) => return Builder::Err(e.into()),
+            Ok(v) => v,
+        }
+    )
+}
+
+impl Builder {
+    /// Create a new cookie builder.
+    ///
+    /// The default cookie applies only to the root domain and to all paths beneath it.
+    pub fn new() -> Builder {
+        Builder::Cookie(Default::default())
+    }
+
+    /// Set the origin from which the cookie came.
+    pub fn origin(self, origin: &Url) -> Builder {
+        if let Some(host) = origin.host() {
+            self
+                .host(host.to_owned())
+                .path(url_dir_path(origin))
+        } else {
+            Builder::Err(ErrorKind::InvalidOrigin(origin.clone()).into())
+        }
+    }
+
+    /// Set the domain for the cookie to match a single domain.
+    pub fn host(self, host: Host) -> Builder {
+        self.map(|cookie| {
+            Ok(Cookie {
+                domain: Domain::from_host(host)?,
+                ..
+                cookie
+            })
+        }).map_payload(|payload| {
+            Ok(Payload {
+                suffix_domain: false,
+                ..
+                payload
+            })
+        })
+
+    }
+
+    /// Set the host for a cookie to match a given string.
+    pub fn host_str(self, host: &str) -> Builder {
+        match Host::parse(host) {
+            Ok(host) => self.host(host),
+            Err(error) => Builder::Err(error.into()),
+        }
+    }
+
+    /// Set the domain for a cookie to match a a given domain and all subdomains.
+    pub fn domain(self, domain: &str) -> Builder {
+        let domain = try_build!(domain_to_ascii(domain));
+        self.map(|cookie| {
+            Ok(Cookie {
+                domain: Domain::Suffix(domain),
+                ..
+                cookie
+            })
+        }).map_payload(|payload| {
+            Ok(Payload {
+                suffix_domain: true,
+                ..
+                payload
+            })
+        })
+    }
+
+    /// Set the path for a cookie to be matched in.
+    pub fn path(self, path: &str) -> Builder {
+        self.map(|cookie| {
+            Ok(Cookie {
+                path: path.to_owned(),
+                ..
+                cookie
+            })
+        })
+    }
+
+    /// Set the key, value pair for the cookie.
+    pub fn pair(self, pair: Pair) -> Builder {
+        self.map_payload(|payload| {
+            Ok(Payload {
+                pair: pair,
+                ..
+                payload
+            })
+        })
+    }
+
+    /// Set the key, value pair for the cookie from a string.
+    pub fn pair_str(self, pair: &str) -> Builder {
+        match pair.parse() {
+            Ok(pair) => self.pair(pair),
+            Err(error) => Builder::Err(error.into())
+        }
+    }
+
+    /// Set the expiry time of a cookie.
+    pub fn expiry(self, time: Tm) -> Builder {
+        self.map_payload(|payload| {
+            Ok(Payload {
+                expiry: Expires::AtUtc(time),
+                ..
+                payload
+            })
+        })
+    }
+
+    /// Set whether or not the cookie requires a secure connection.
+    pub fn secure(self, secure: bool) -> Builder {
+        self.map_payload(|payload| {
+            Ok(Payload {
+                secure: secure,
+                ..
+                payload
+            })
+        })
+    }
+
+    /// Set whether a cookie should only be sent of HTTP/HTTPS connections.
+    pub fn http_only(self, http_only: bool) -> Builder {
+        self.map_payload(|payload| {
+            Ok(Payload {
+                http_only: http_only,
+                ..
+                payload
+            })
+        })
+    }
+
+    /// Build the cookie.
+    pub fn build(self) -> Result<Cookie> {
+        match self {
+            Builder::Cookie(cookie) => Ok(cookie),
+            Builder::Err(error) => Err(error),
+        }
+    }
+
+    fn map<F>(self, f: F) -> Builder
+    where
+        F: FnOnce(Cookie) -> Result<Cookie>,
+    {
+        if let Builder::Cookie(cookie) = self {
+            match f(cookie) {
+                Ok(cookie) => Builder::Cookie(cookie),
+                Err(error) => Builder::Err(error),
+            }
+        } else {
+            self
+        }
+    }
+
+    fn map_payload<F>(self, f:F) -> Builder
+    where
+        F: FnOnce(Payload) -> Result<Payload>
+    {
+        self.map(|cookie| {
+            Ok(Cookie {
+                payload: f(cookie.payload)?,
+                ..
+                cookie
+            })
+        })
+    }
+}
+
 /// This is the form that the cookie is represented in within the jar.
 /// It is formed by parsing the provided string into a cookie object.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct Cookie {
-    /// Data stored within the cookie (key = value pair).
-    pair: CookiePair,
-
-    /// The expiration time of the cookie in UTC.
-    expiry: Expires,
-
     /// Domain or host restriction of the cookie.
     domain: Domain,
 
     /// Path restriction of the cookie.
     path: String,
+
+    /// The cookie contents and security requirements.
+    payload: Payload,
+}
+
+/// The payload of the cookie including security requirements.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Payload {
+    /// Data stored within the cookie (key = value pair).
+    pair: Pair,
+
+    /// The expiration time of the cookie in UTC.
+    expiry: Expires,
+
+    /// If the cookie also applies to subdomains.
+    suffix_domain: bool,
 
     /// The cookie can only be sent over a TLS connection.
     secure: bool,
@@ -35,7 +239,9 @@ impl Cookie {
     /// Decode a string cookie from a given origin.
     pub fn decode(cookie: &str, origin: &Url) -> Result<Cookie> {
         let (pair, args) = process_cookie(cookie)?;
-        let mut cookie = Cookie::default(pair, origin)?;
+        let mut cookie = Builder::new()
+            .pair(pair)
+            .origin(origin);
 
         // If a Max-Age argument has been seen, Expires should be ignored.
         let mut use_max_age = false;
@@ -43,78 +249,62 @@ impl Cookie {
         for arg in args {
             match (arg?, use_max_age) {
                 (Argument::Expires(time), false) => {
-                    cookie.expiry = Expires::AtUtc(time);
+                    cookie = cookie.expiry(time);
                 }
                 (Argument::MaxAge(duration), _) => {
-                    cookie.expiry = Expires::AtUtc(now_utc() + duration);
+                    cookie = cookie.expiry(now_utc() + duration);
                     use_max_age = true;
                 }
                 (Argument::Domain(domain), _) => {
-                    cookie.domain = Domain::Suffix(domain.to_string());
+                    cookie = cookie.domain(domain);
                 }
                 (Argument::Path(path), _) => {
-                    cookie.path = path.to_string();
+                    cookie = cookie.path(path);
                 }
                 (Argument::Secure, _) => {
-                    cookie.secure = true;
+                    cookie = cookie.secure(true);
                 }
                 (Argument::HttpOnly, _) => {
-                    cookie.http_only = true;
+                    cookie = cookie.http_only(true);
                 }
                 // Ignore all others
                 _ => {}
             }
         }
 
-        Ok(cookie)
-    }
-
-    /// Default value for a cookie with no additional flags.
-    fn default(pair: CookiePair, origin: &Url) -> Result<Cookie> {
-        let domain = origin
-            .host()
-            .ok_or_else(|| ErrorKind::InvalidOrigin(origin.clone()))?
-            .to_owned();
-        Ok(Cookie {
-            pair: pair,
-            expiry: Expires::Never,
-            domain: Domain::from_host(domain)?,
-            path: url_dir_path(origin).to_string(),
-            secure: false,
-            http_only: false,
-        })
+        cookie.build()
     }
 
     /// Get the name of the cookie.
     pub fn name(&self) -> &str {
-        self.pair.name()
+        self.payload.pair.name()
     }
 
     /// Get the value of a cookie.
     pub fn value(&self) -> &str {
-        self.pair.value()
+        self.payload.pair.value()
     }
 
     /// Get the (name, value) pair of a cookie.
     pub fn pair(&self) -> (&str, &str) {
-        self.pair.as_tuple()
+        self.payload.pair.as_tuple()
     }
 
     /// Get the formatted `name=value` pair string of a cookie.
     ///
     /// Preserves any quotation from the original cookie as read.
-    pub fn str_pair(&self) -> &str {
-        self.pair.as_str()
+    pub fn pair_str(&self) -> &str {
+        self.payload.pair.as_str()
     }
 
     /// Check if the cookie requires a secure connection.
     pub fn secure(&self) -> bool {
-        self.secure
+        self.payload.secure
     }
 
     /// Check if the cookie should only be sent over http requests.
     pub fn http_only(&self) -> bool {
-        self.http_only
+        self.payload.http_only
     }
 
     /// Check if the cookie is host-only.
@@ -132,7 +322,7 @@ impl Cookie {
 
     /// Check if the cookie was expired after a given time.
     pub fn expired_since(&self, time: Tm) -> bool {
-        match self.expiry {
+        match self.payload.expiry {
             Expires::Never => false,
             Expires::AtUtc(expiry) => time >= expiry,
         }
@@ -140,7 +330,7 @@ impl Cookie {
 
     /// Get the expiry of the cookie.
     pub fn expiry(&self) -> &Expires {
-        &self.expiry
+        &self.payload.expiry
     }
 
     /// Get the domain or host the cookie applies to.
@@ -166,7 +356,7 @@ impl Cookie {
 
     /// Check if a cookie should replace another cookie.
     pub fn replaces(&self, other: &Cookie) -> bool {
-        self.pair.name() == other.pair.name()
+        self.payload.pair.name() == other.payload.pair.name()
             && self.path == other.path
             && self.domain_name() == other.domain_name()
     }
@@ -186,7 +376,15 @@ pub enum Expires {
     Never,
 }
 
+impl Default for Expires {
+    fn default() -> Expires {
+        Expires::Never
+    }
+}
+
 /// Domain for a specific cookie
+///
+/// The default domain is for the "0.0.0.0" host and should not match any requests.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Domain {
     /// The cookies only applies to a specific host.
@@ -195,12 +393,17 @@ pub enum Domain {
     Suffix(String),
 }
 
+impl Default for Domain {
+    fn default() -> Domain {
+        use std::net::Ipv4Addr;
+        Domain::Host(Host::Ipv4(Ipv4Addr::new(0, 0, 0, 0)))
+    }
+}
+
 impl Domain {
     fn from_host(host: Host) -> Result<Domain> {
         let host = match host {
-            Host::Domain(domain) => {
-                Host::Domain(domain_to_ascii(&domain).map_err(ErrorKind::InvalidDomain)?)
-            }
+            Host::Domain(domain) => Host::Domain(domain_to_ascii(&domain)?),
             host => host,
         };
         Ok(Domain::Host(host))
@@ -229,47 +432,41 @@ mod test {
         let examples = [
             (
                 "SID=31d4d96e407aad42",
-                Cookie {
-                    pair: "SID=31d4d96e407aad42".parse().unwrap(),
-                    expiry: Expires::Never,
-                    domain: Domain::Host(Host::Domain("www.example.com".to_string())),
-                    path: "/path/to/".to_string(),
-                    secure: false,
-                    http_only: false,
-                },
+                Builder::new()
+                    .host_str("www.example.com")
+                    .path("/path/to/")
+                    .pair_str("SID=31d4d96e407aad42")
+                    .build()
+                    .unwrap(),
             ),
             (
                 "SID=31d4d96e407aad42; Path=/; Domain=example.com",
-                Cookie {
-                    pair: "SID=31d4d96e407aad42".parse().unwrap(),
-                    expiry: Expires::Never,
-                    domain: Domain::Suffix("example.com".to_string()),
-                    path: "/".to_string(),
-                    secure: false,
-                    http_only: false,
-                },
+                Builder::new()
+                    .domain("example.com")
+                    .path("/")
+                    .pair_str("SID=31d4d96e407aad42")
+                    .build()
+                    .unwrap(),
             ),
             (
                 "SID=31d4d96e407aad42; Path=/; Secure; HttpOnly",
-                Cookie {
-                    pair: "SID=31d4d96e407aad42".parse().unwrap(),
-                    expiry: Expires::Never,
-                    domain: Domain::Host(Host::Domain("www.example.com".to_string())),
-                    path: "/".to_string(),
-                    secure: true,
-                    http_only: true,
-                },
+                Builder::new()
+                    .host_str("www.example.com")
+                    .path("/")
+                    .pair_str("SID=31d4d96e407aad42")
+                    .http_only(true)
+                    .secure(true)
+                    .build()
+                    .unwrap(),
             ),
             (
                 "lang=en-US; Path=/; Domain=example.com",
-                Cookie {
-                    pair: "lang=en-US".parse().unwrap(),
-                    expiry: Expires::Never,
-                    domain: Domain::Suffix("example.com".to_string()),
-                    path: "/".to_string(),
-                    secure: false,
-                    http_only: false,
-                },
+                Builder::new()
+                    .domain("example.com")
+                    .path("/")
+                    .pair_str("lang=en-US")
+                    .build()
+                    .unwrap(),
             ),
         ];
 

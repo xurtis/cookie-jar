@@ -10,17 +10,31 @@ error_chain!{
 
     // Links to other standard errors.
     foreign_links {
+        Url(::url::ParseError);
     }
 
     // Internal error forms.
     errors {
+        InvalidDomain(domain: ::idna::uts46::Errors) {
+            description("An invalid domain was provided"),
+            display("InvalidDomain({:?})", domain),
+        }
         InvalidOrigin(url: ::url::Url) {
             description("The origin supplied for the cookie was invalid"),
-            display("The url is not a valid cookie origin: {}", url),
+            display("InvalidOrigin({})", url),
         }
-        InvalidDomain(err: ::idna::uts46::Errors) {
-            description("Invalid domain name"),
-        }
+    }
+}
+
+impl From<::idna::uts46::Errors> for ErrorKind {
+    fn from(error: ::idna::uts46::Errors) -> ErrorKind {
+        ErrorKind::InvalidDomain(error)
+    }
+}
+
+impl From<::idna::uts46::Errors> for Error {
+    fn from(error: ::idna::uts46::Errors) -> Error {
+        ErrorKind::from(error).into()
     }
 }
 
@@ -31,6 +45,7 @@ pub mod parser {
             Utf8(::std::str::Utf8Error);
             ParseInt(::std::num::ParseIntError);
             Time(::time::ParseError);
+            Url(::url::ParseError);
         }
 
         errors {

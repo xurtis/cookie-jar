@@ -120,17 +120,19 @@ fn split_cookie<'s>(source: &'s [u8]) -> Result<(&'s [u8], &'s [u8])> {
 }
 
 /// Process a cookie string into a pair and a set of arguments.
-pub fn process_cookie<'s>(source: &'s str) -> Result<(CookiePair, ArgumentIter<'s>)> {
+pub fn process_cookie<'s>(source: &'s str) -> Result<(Pair, ArgumentIter<'s>)> {
     let (cookie, arguments) = split_cookie(source.as_bytes())?;
     Ok((
-        CookiePair::from_bytes(cookie)?,
+        Pair::from_bytes(cookie)?,
         ArgumentIter::new(arguments),
     ))
 }
 
 /// A decoded cookie name=value pair.
-#[derive(Debug, PartialEq, Eq)]
-pub struct CookiePair {
+///
+/// Defaults to an empty string with both the name and value as being empty.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Pair {
     /// Formated `name=value` pair.
     pair: String,
     /// The length of the name at the start of the cookie.
@@ -139,9 +141,9 @@ pub struct CookiePair {
     value_location: (usize, usize),
 }
 
-impl CookiePair {
+impl Pair {
     /// Create a cookie pair from a byte slice.
-    fn from_bytes(source: &[u8]) -> Result<CookiePair> {
+    fn from_bytes(source: &[u8]) -> Result<Pair> {
         let name = next_token(source)?;
         let value_start = name.len() + 1;
         ensure!(
@@ -155,7 +157,7 @@ impl CookiePair {
             Quotable::Plain(value) => (value_start, value.len()),
         };
 
-        Ok(CookiePair {
+        Ok(Pair {
             pair: from_utf8(source)?.to_string(),
             name_len: name.len(),
             value_location: value_location,
@@ -184,11 +186,11 @@ impl CookiePair {
     }
 }
 
-impl FromStr for CookiePair {
+impl FromStr for Pair {
     type Err = Error;
 
-    fn from_str(source: &str) -> Result<CookiePair> {
-        CookiePair::from_bytes(source.as_bytes())
+    fn from_str(source: &str) -> Result<Pair> {
+        Pair::from_bytes(source.as_bytes())
     }
 }
 
@@ -303,11 +305,11 @@ mod test {
                  Domain=google.com; \
                  Expires=Sun, 25 Feb 2018 01:36:48 GMT; \
                  Max-Age=3200; \
-                 other=fragment \
+                 other=fragment\
             ",
         ).unwrap();
         let args: Vec<Argument<'static>> = args.map(Result::unwrap).collect();
-        let expected_cookie = CookiePair {
+        let expected_cookie = Pair {
             pair: "some=thing".to_string(),
             name_len: 4,
             value_location: (5, 5),
