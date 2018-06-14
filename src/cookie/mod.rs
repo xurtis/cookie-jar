@@ -182,7 +182,7 @@ impl Builder {
             Builder::Cookie( SetCookie {
                 domain: Some(domain),
                 path: Some(path),
-                attributes: attributes,
+                attributes,
             }) => Ok(Cookie {
                 domain: domain,
                 path: path,
@@ -284,7 +284,7 @@ impl Deref for SetCookie {
 
 impl SetCookie {
     /// Parse a given cookie.
-    fn parse(cookie: &str) -> Result<SetCookie> {
+    pub fn parse(cookie: &str) -> Result<SetCookie> {
         Builder::new().parse(cookie)?.build_set_cookie()
     }
 
@@ -360,11 +360,6 @@ impl Cookie {
     /// Get the path the cookie applies to.
     pub fn path(&self) -> &str {
         self.path.as_str()
-    }
-
-    /// Check if a cookie applies to a particular request URL.
-    pub fn applies_to(&self, url: Url) -> bool {
-        unimplemented!()
     }
 }
 
