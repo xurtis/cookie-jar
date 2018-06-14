@@ -222,7 +222,7 @@ impl<'s> ArgumentIter<'s> {
         // Get the next argument
         let next = next_fragment(self.remaining)?;
         self.remaining = &self.remaining[next.len()..];
-        Ok(Some(Argument::decode(next)?))
+        Ok(Some(Argument::parse(next)?))
     }
 }
 
@@ -250,7 +250,7 @@ pub enum Argument<'s> {
 }
 
 impl<'s> Argument<'s> {
-    fn decode(fragment: &'s [u8]) -> Result<Argument<'s>> {
+    fn parse(fragment: &'s [u8]) -> Result<Argument<'s>> {
         if fragment.starts_with(b"Expires=") {
             let time = date::parse(&fragment[8..])?;
             Ok(Argument::Expires(time))

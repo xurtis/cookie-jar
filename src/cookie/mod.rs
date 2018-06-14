@@ -236,13 +236,14 @@ pub(crate) struct Payload {
 }
 
 impl Cookie {
-    /// Decode a string cookie from a given origin.
-    pub fn decode(cookie: &str, origin: &Url) -> Result<Cookie> {
+    /// Parse a string cookie from a given origin.
+    pub fn parse(cookie: &str, origin: &Url) -> Result<Cookie> {
         let builder = Builder::new().origin(origin);
         Cookie::parse_onto_builder(cookie, builder)
     }
 
     /// Parse a string as a cookie that applies to the 0.0.0.0 domain.
+    #[cfg(not(all))]
     pub fn parse_global(cookie: &str) -> Result<Cookie> {
         Cookie::parse_onto_builder(cookie, Builder::new())
     }
@@ -480,7 +481,8 @@ mod test {
         ];
 
         for &(cookie_str, ref expected) in examples.iter() {
-            let cookie = Cookie::decode(cookie_str, &origin).expect("Could not parse cookie");
+            let cookie = Cookie::parse(cookie_str, &origin)
+                .expect("Could not parse cookie");
             assert_eq!(&cookie, expected);
         }
     }
