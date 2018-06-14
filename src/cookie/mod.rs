@@ -238,10 +238,19 @@ pub(crate) struct Payload {
 impl Cookie {
     /// Decode a string cookie from a given origin.
     pub fn decode(cookie: &str, origin: &Url) -> Result<Cookie> {
+        let builder = Builder::new().origin(origin);
+        Cookie::parse_onto_builder(cookie, builder)
+    }
+
+    /// Parse a string as a cookie that applies to the 0.0.0.0 domain.
+    pub fn parse_global(cookie: &str) -> Result<Cookie> {
+        Cookie::parse_onto_builder(cookie, Builder::new())
+    }
+
+    /// Parse a given cookie into a builder.
+    pub fn parse_onto_builder(cookie: &str, mut builder: Builder) -> Result<Cookie> {
         let (pair, args) = process_cookie(cookie)?;
-        let mut cookie = Builder::new()
-            .pair(pair)
-            .origin(origin);
+        builder = builder.pair(pair);
 
         // If a Max-Age argument has been seen, Expires should be ignored.
         let mut use_max_age = false;
@@ -249,30 +258,30 @@ impl Cookie {
         for arg in args {
             match (arg?, use_max_age) {
                 (Argument::Expires(time), false) => {
-                    cookie = cookie.expiry(time);
+                    builder = builder.expiry(time);
                 }
                 (Argument::MaxAge(duration), _) => {
-                    cookie = cookie.expiry(now_utc() + duration);
+                    builder = builder.expiry(now_utc() + duration);
                     use_max_age = true;
                 }
                 (Argument::Domain(domain), _) => {
-                    cookie = cookie.domain(domain);
+                    builder = builder.domain(domain);
                 }
                 (Argument::Path(path), _) => {
-                    cookie = cookie.path(path);
+                    builder = builder.path(path);
                 }
                 (Argument::Secure, _) => {
-                    cookie = cookie.secure(true);
+                    builder = builder.secure(true);
                 }
                 (Argument::HttpOnly, _) => {
-                    cookie = cookie.http_only(true);
+                    builder = builder.http_only(true);
                 }
                 // Ignore all others
                 _ => {}
             }
         }
 
-        cookie.build()
+        builder.build()
     }
 
     /// Get the name of the cookie.
