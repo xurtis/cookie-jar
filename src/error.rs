@@ -23,6 +23,12 @@ error_chain!{
             description("The origin supplied for the cookie was invalid"),
             display("InvalidOrigin({})", url),
         }
+        MissingDomain {
+            description("No domain was provided for the cookie.")
+        }
+        MissingPath {
+            description("No path was provided for the cookie.")
+        }
     }
 }
 
