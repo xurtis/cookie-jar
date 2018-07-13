@@ -11,12 +11,13 @@
 //! subdomains. Similarly, each domain contains its root path which branches out into its
 //! sub-paths.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use url::Url;
 use time::{Tm, now_utc};
 
-use ::cookie::{Cookie, Attributes};
+use ::cookie::{Cookie, Attributes, Pair};
 
 /// A carrier of cookies being sent to a server.
 ///
@@ -27,7 +28,7 @@ pub trait Carrier {
     fn url(&self) -> &Url;
 
     /// Add a cookie onto the sender.
-    fn add_cookie(&mut self, cookie: Cookie);
+    fn cookies(&mut self);
 }
 
 /// Something that produces the current UTC time.
@@ -93,9 +94,9 @@ impl<T: Clock> Jar<T> {
         unimplemented!()
     }
 
-    /// Apply all matching cookies to a sender.
-    pub fn attach_cookies(&self, sender: &mut Carrier) {
-        unimplemented!()
+    /// Get the matching cookies for a Url.
+    pub fn url_matches<'j>(&'j self, url: &'j Url) -> impl Iterator<Item = &'j Pair> {
+        self.domain.url_matches(url).map(Attributes::pair)
     }
 }
 
@@ -106,9 +107,48 @@ struct Domain {
     children: HashMap<String, Domain>,
 }
 
+impl Domain {
+    /// Finds all of the matching attributes for a given url.
+    pub fn url_matches<'j>(&'j self, url: &'j Url) -> Box<dyn Iterator<Item = &'j Attributes> + 'j> {
+        let iter = self.children.iter()
+            .filter(parent_domains(url))
+            .flat_map(move |(_, v)| v.url_matches(url))
+            .chain(self.path.url_matches(url));
+        Box::new(iter)
+    }
+}
+
 /// The heriarchy of paths.
 #[derive(Debug, Default)]
 struct Path {
     cookies: Vec<Attributes>,
     children: HashMap<String, Path>,
+}
+
+impl Path {
+    /// Finds all of the matching attributes for a given url.
+    pub fn url_matches<'j>(&'j self, url: &'j Url) -> Box<dyn Iterator<Item = &'j Attributes> + 'j> {
+        let iter = self.children.iter()
+            .filter(parent_paths(url))
+            .flat_map(move |(_, v)| v.url_matches(url));
+        Box::new(iter)
+    }
+}
+
+/// An iterator over the paths matching a URL.
+struct PathMatches {
+}
+
+fn parent_domains<'u, T>(url: &'u Url) -> impl (FnMut(&(&String, T)) -> bool) + 'u {
+    move |(parent, _)| {
+        if let Some(domain) = url.domain() {
+            domain.ends_with(parent.as_str())
+        } else {
+            false
+        }
+    }
+}
+
+fn parent_paths<'u, T>(url: &'u Url) -> impl (FnMut(&(&String, T)) -> bool) + 'u {
+    move |(parent, _)| url.path().starts_with(parent.as_str())
 }

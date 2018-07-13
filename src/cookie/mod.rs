@@ -5,7 +5,7 @@ mod parse;
 use std::ops::Deref;
 
 use self::parse::{process_cookie, Argument};
-pub(crate) use self::parse::Pair;
+pub use self::parse::Pair;
 use error::*;
 use idna::domain_to_ascii;
 use time::{now_utc, strftime, Tm};
@@ -396,26 +396,9 @@ impl Default for Attributes {
 
 impl Attributes {
 
-    /// Get the name of the cookie.
-    pub fn name(&self) -> &str {
-        self.pair.name()
-    }
-
-    /// Get the value of a cookie.
-    pub fn value(&self) -> &str {
-        self.pair.value()
-    }
-
     /// Get the (name, value) pair of a cookie.
-    pub fn pair(&self) -> (&str, &str) {
-        self.pair.as_tuple()
-    }
-
-    /// Get the formatted `name=value` pair string of a cookie.
-    ///
-    /// Preserves any quotation from the original cookie as read.
-    pub fn pair_str(&self) -> &str {
-        self.pair.as_str()
+    pub fn pair(&self) -> &Pair {
+        &self.pair
     }
 
     /// Check if the cookie requires a secure connection.
