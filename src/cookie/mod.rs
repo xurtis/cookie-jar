@@ -12,12 +12,15 @@ use url::{Host, Url};
 
 /// A builder for a cookie.
 #[derive(Default, Debug)]
-pub struct Builder {
+pub struct Builder<'u> {
     /// The associated host for the cookie.
     host: Option<Host>,
 
     /// The associated path for the cookie.
     path: Option<String>,
+
+    /// The scheme used to transmit a given cookie.
+    scheme: Option<Scheme<'u>>,
 
     /// The cookie attributes.
     attributes: Attributes,
@@ -26,8 +29,8 @@ pub struct Builder {
     error: Option<Error>,
 }
 
-impl From<parser::Error> for Builder {
-    fn from(e: parser::Error) -> Builder {
+impl<'u> From<parser::Error> for Builder<'u> {
+    fn from(e: parser::Error) -> Builder<'u> {
         Builder {
             error: Some(e.into()),
             ..
@@ -36,8 +39,8 @@ impl From<parser::Error> for Builder {
     }
 }
 
-impl From<Error> for Builder {
-    fn from(e: Error) -> Builder {
+impl<'u> From<Error> for Builder<'u> {
+    fn from(e: Error) -> Builder<'u> {
         Builder {
             error: Some(e),
             ..
@@ -46,16 +49,16 @@ impl From<Error> for Builder {
     }
 }
 
-impl Builder {
+impl<'u> Builder<'u> {
     /// Create a new cookie builder.
     ///
     /// The default cookie applies only to the root domain and to all paths beneath it.
-    pub fn new() -> Builder {
+    pub fn new() -> Builder<'u> {
         Builder::default()
     }
 
     /// Set the error of the builder.
-    fn error(mut self, error: Error) -> Builder {
+    fn error(mut self, error: Error) -> Builder<'u> {
         if self.error.is_none() {
             self.error = Some(error);
         }
@@ -63,11 +66,12 @@ impl Builder {
     }
 
     /// Set the origin from which the cookie came.
-    pub fn origin(self, origin: &Url) -> Builder {
+    pub fn origin(self, origin: &'u Url) -> Builder<'u> {
         if let Some(host) = origin.host() {
             Builder {
                 host: Some(host.to_owned()),
                 path: Some(url_dir_path(origin).to_owned()),
+                scheme: Some(origin.into()),
                 attributes: Attributes {
                     host_only: true,
                     ..
@@ -82,7 +86,7 @@ impl Builder {
     }
 
     /// Set the domain for the cookie to match a single domain.
-    pub fn host(self, host: Host) -> Builder {
+    pub fn host(self, host: Host) -> Builder<'u> {
         Builder {
             host: Some(host),
             attributes: Attributes {
@@ -96,7 +100,7 @@ impl Builder {
     }
 
     /// Set the host for a cookie to match a given string.
-    pub fn host_str(self, host: &str) -> Builder {
+    pub fn host_str(self, host: &str) -> Builder<'u> {
         match Host::parse(host) {
             Ok(host) => self.host(host),
             Err(error) => self.error(error.into()),
@@ -104,7 +108,7 @@ impl Builder {
     }
 
     /// Set the domain for a cookie to match a a given domain and all subdomains.
-    pub fn domain(self, domain: &str) -> Builder {
+    pub fn domain(self, domain: &str) -> Builder<'u> {
         match Host::parse(domain) {
             Ok(host) => Builder {
                 host: Some(host),
@@ -121,7 +125,7 @@ impl Builder {
     }
 
     /// Set the path for a cookie to be matched in.
-    pub fn path(self, path: &str) -> Builder {
+    pub fn path(self, path: &str) -> Builder<'u> {
         Builder {
             path: Some(path.to_owned()),
             ..
@@ -130,7 +134,7 @@ impl Builder {
     }
 
     /// Set the key, value pair for the cookie.
-    pub fn pair(self, pair: Pair) -> Builder {
+    pub fn pair(self, pair: Pair) -> Builder<'u> {
         Builder {
             attributes: Attributes {
                 pair: pair,
@@ -143,7 +147,7 @@ impl Builder {
     }
 
     /// Set the key, value pair for the cookie from a string.
-    pub fn pair_str(self, pair: &str) -> Builder {
+    pub fn pair_str(self, pair: &str) -> Builder<'u> {
         match pair.parse() {
             Ok(pair) => self.pair(pair),
             Err(error) => self.error(error.into())
@@ -151,7 +155,7 @@ impl Builder {
     }
 
     /// Set the expiry time of a cookie.
-    pub fn expiry(self, time: Tm) -> Builder {
+    pub fn expiry(self, time: Tm) -> Builder<'u> {
         Builder {
             attributes: Attributes {
                 expiry: Expires::AtUtc(time),
@@ -164,7 +168,13 @@ impl Builder {
     }
 
     /// Set whether or not the cookie requires a secure connection.
-    pub fn secure(self, secure: bool) -> Builder {
+    pub fn secure(self, secure: bool) -> Builder<'u> {
+        if let Some(scheme) = self.scheme {
+            if secure && !scheme.is_secure() {
+                return self.error(ErrorKind::InsecureOrigin.into());
+            }
+        };
+
         Builder {
             attributes: Attributes {
                 secure: secure,
@@ -177,7 +187,13 @@ impl Builder {
     }
 
     /// Set whether a cookie should only be sent of HTTP/HTTPS connections.
-    pub fn http_only(self, http_only: bool) -> Builder {
+    pub fn http_only(self, http_only: bool) -> Builder<'u> {
+        if let Some(scheme) = self.scheme {
+            if http_only && !scheme.is_http() {
+                return self.error(ErrorKind::NonHttpOrigin.into());
+            }
+        };
+
         Builder {
             attributes: Attributes {
                 http_only: http_only,
@@ -196,12 +212,14 @@ impl Builder {
                 host: _,
                 path: _,
                 attributes: _,
+                scheme: _,
                 error: Some(error),
             } => Err(error),
             Builder {
                 host: Some(Host::Domain(domain)),
                 path,
                 attributes,
+                scheme: _,
                 error: None,
             } => Ok(SetCookie {
                 domain: Some(domain),
@@ -212,6 +230,7 @@ impl Builder {
                 host: None,
                 path,
                 attributes,
+                scheme: _,
                 error: None,
             } => Ok(SetCookie {
                 domain: None,
@@ -229,24 +248,28 @@ impl Builder {
                 host: _,
                 path: _,
                 attributes: _,
+                scheme: _,
                 error: Some(error),
             } => Err(error),
             Builder {
                 host: None,
                 path: _,
                 attributes: _,
+                scheme: _,
                 error: None,
             } => Err(ErrorKind::MissingDomain.into()),
             Builder {
                 host: _,
                 path: None,
                 attributes: _,
+                scheme: _,
                 error: None,
             } => Err(ErrorKind::MissingDomain.into()),
             Builder {
                 host: Some(host),
                 path: Some(path),
                 attributes,
+                scheme: _,
                 error: None,
             } => Ok(Cookie {
                 host: host,
@@ -257,7 +280,7 @@ impl Builder {
     }
 
     /// Parse a given cookie into a builder.
-    fn parse(self, cookie: &str) -> Result<Builder> {
+    fn parse(self, cookie: &str) -> Result<Builder<'u>> {
         let (pair, args) = process_cookie(cookie)?;
         let mut builder = self.pair(pair);
 
@@ -529,14 +552,55 @@ pub(crate) fn url_dir_path(url: &Url) -> &str {
     }
 }
 
+/// The transport scheme for a URI.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub(crate) enum Scheme<'u> {
+    Http,
+    Https,
+    Other(&'u str),
+}
+
+impl<'u> From<&'u Url> for Scheme<'u> {
+    fn from(url: &'u Url) -> Scheme<'u> {
+        match url.scheme() {
+            "http" => Scheme::Http,
+            "https" => Scheme::Https,
+            scheme => Scheme::Other(scheme)
+        }
+    }
+}
+
+impl<'u> Scheme<'u> {
+    fn is_http(&self) -> bool {
+        match self {
+            Scheme::Http | Scheme::Https => true,
+            _ => false,
+        }
+    }
+
+    fn is_secure(&self) -> bool {
+        match self {
+            Scheme::Https => true,
+            _ => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
+    fn test_scheme() {
+        assert_eq!(Scheme::Http, Scheme::from(&"http://example.com".parse::<Url>().unwrap()));
+        assert_eq!(Scheme::Https, Scheme::from(&"https://example.com".parse::<Url>().unwrap()));
+        assert_eq!(Scheme::Other("ftp"), Scheme::from(&"ftp://example.com".parse::<Url>().unwrap()));
+    }
+
+    #[test]
     /// Examples from [RFC6265](https://tools.ietf.org/html/rfc6265).
     fn parse_rfc_examples() {
-        let origin = "http://www.example.com/path/to/page.html".parse().unwrap();
+        let origin = "https://www.example.com/path/to/page.html".parse().unwrap();
         let examples = [
             (
                 "SID=31d4d96e407aad42",

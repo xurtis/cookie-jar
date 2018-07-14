@@ -32,6 +32,12 @@ error_chain!{
         HostInvalid {
             description("Invalid to provide an IP address for a SetCookie")
         }
+        InsecureOrigin {
+            description("A cookie with the `Secure` attribute was delivered over a non-TLS transport")
+        }
+        NonHttpOrigin {
+            description("A cookie with the `HttpOnly` attribute was delivered over a non-HTTP transport")
+        }
     }
 }
 

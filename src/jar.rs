@@ -18,7 +18,7 @@ use std::net::IpAddr;
 use url::{Url, Host};
 use time::{Tm, now_utc};
 
-use ::cookie::{Cookie, Attributes, Pair, url_dir_path};
+use ::cookie::{Cookie, Attributes, Pair, Scheme, url_dir_path};
 
 /// Something that produces the current UTC time.
 pub trait Clock {
@@ -137,24 +137,6 @@ impl HostMatch {
         move |attributes| match self {
             HostMatch::Exact => true,
             HostMatch::Suffix => !attributes.host_only(),
-        }
-    }
-}
-
-/// The transport scheme for a URI.
-#[derive(PartialEq, Eq, Clone, Copy)]
-enum Scheme<'u> {
-    Http,
-    Https,
-    Other(&'u str),
-}
-
-impl<'u> From<&'u Url> for Scheme<'u> {
-    fn from(url: &'u Url) -> Scheme<'u> {
-        match url.scheme() {
-            "http" => Scheme::Http,
-            "https" => Scheme::Http,
-            scheme => Scheme::Other(scheme)
         }
     }
 }
