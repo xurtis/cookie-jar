@@ -1,0 +1,13 @@
+(function() {var implementors = {};
+implementors["cookie_jar"] = [{text:"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/std/error/trait.Error.html\" title=\"trait std::error::Error\">Error</a> for <a class=\"struct\" href=\"cookie_jar/error/parser/struct.Error.html\" title=\"struct cookie_jar::error::parser::Error\">Error</a>",synthetic:false,types:["cookie_jar::error::parser::Error"]},{text:"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/std/error/trait.Error.html\" title=\"trait std::error::Error\">Error</a> for <a class=\"struct\" href=\"cookie_jar/error/struct.Error.html\" title=\"struct cookie_jar::error::Error\">Error</a>",synthetic:false,types:["cookie_jar::error::Error"]},];
+implementors["error_chain"] = [{text:"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/std/error/trait.Error.html\" title=\"trait std::error::Error\">Error</a> for <a class=\"struct\" href=\"error_chain/example_generated/inner/struct.Error.html\" title=\"struct error_chain::example_generated::inner::Error\">Error</a>",synthetic:false,types:["error_chain::example_generated::inner::Error"]},{text:"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/std/error/trait.Error.html\" title=\"trait std::error::Error\">Error</a> for <a class=\"struct\" href=\"error_chain/example_generated/struct.Error.html\" title=\"struct error_chain::example_generated::Error\">Error</a>",synthetic:false,types:["error_chain::example_generated::Error"]},];
+implementors["time"] = [{text:"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/std/error/trait.Error.html\" title=\"trait std::error::Error\">Error</a> for <a class=\"struct\" href=\"time/struct.OutOfRangeError.html\" title=\"struct time::OutOfRangeError\">OutOfRangeError</a>",synthetic:false,types:["time::duration::OutOfRangeError"]},{text:"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/std/error/trait.Error.html\" title=\"trait std::error::Error\">Error</a> for <a class=\"enum\" href=\"time/enum.ParseError.html\" title=\"enum time::ParseError\">ParseError</a>",synthetic:false,types:["time::ParseError"]},];
+implementors["url"] = [{text:"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/std/error/trait.Error.html\" title=\"trait std::error::Error\">Error</a> for <a class=\"enum\" href=\"url/enum.ParseError.html\" title=\"enum url::ParseError\">ParseError</a>",synthetic:false,types:["url::parser::ParseError"]},];
+
+            if (window.register_implementors) {
+                window.register_implementors(implementors);
+            } else {
+                window.pending_implementors = implementors;
+            }
+        
+})()
