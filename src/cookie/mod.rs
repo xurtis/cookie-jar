@@ -511,7 +511,7 @@ impl Default for Expires {
 }
 
 /// Get the directory of the path of a Url.
-fn url_dir_path(url: &Url) -> &str {
+pub(crate) fn url_dir_path(url: &Url) -> &str {
     let path = url.path();
     if path.ends_with('/') {
         path

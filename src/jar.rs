@@ -12,13 +12,14 @@
 //! sub-paths.
 
 use std::collections::HashMap;
+use std::iter;
 use std::net::IpAddr;
 use std::path;
 
 use url::{Url, Host};
 use time::{Tm, now_utc};
 
-use ::cookie::{Cookie, Attributes, Pair};
+use ::cookie::{Cookie, Attributes, Pair, url_dir_path};
 
 /// A carrier of cookies being sent to a server.
 ///
@@ -120,8 +121,37 @@ impl<T: Clock> Jar<T> {
 
     /// Get the matching cookies for a Url.
     pub fn url_matches<'j>(&'j self, url: &'j Url) -> impl Iterator<Item = &'j Pair> {
-        self.domain.url_matches(url).map(Attributes::pair)
+        let path_segments = url_dir_path(url).trim_left_matches('/').split('/');
+        match url.host() {
+            Some(Host::Domain(domain)) => {
+                let domain_segments: Vec<_> = domain.trim_matches('.').split('.').collect();
+                self.domain.match_url(domain_segments, path_segments)
+            }
+            Some(Host::Ipv4(addr)) => self.host_matches(IpAddr::V4(addr), path_segments),
+            Some(Host::Ipv6(addr)) => self.host_matches(IpAddr::V6(addr), path_segments),
+            _ => Box::new(iter::empty()),
+        }
     }
+
+    /// Get all of the matches for a specific host.
+    fn host_matches<'j, 's, S>(&'j self, host: IpAddr, segments: S)
+        -> Box<Iterator<Item = &'j Pair> + 'j>
+    where
+        S: Iterator<Item = &'s str> + 's,
+    {
+        if let Some(host) = self.hosts.get(&host) {
+            host.match_url(segments, HostMatch::Exact)
+        } else {
+            Box::new(iter::empty())
+        }
+    }
+}
+
+/// The given URL is an exact host match.
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum HostMatch {
+    Exact,
+    Suffix,
 }
 
 /// The heirarchy of domains.
@@ -132,15 +162,6 @@ struct Domain {
 }
 
 impl Domain {
-    /// Finds all of the matching attributes for a given url.
-    pub fn url_matches<'j>(&'j self, url: &'j Url) -> Box<dyn Iterator<Item = &'j Attributes> + 'j> {
-        let iter = self.children.iter()
-            .filter(parent_domains(url))
-            .flat_map(move |(_, v)| v.url_matches(url))
-            .chain(self.path.url_matches(url));
-        Box::new(iter)
-    }
-
     /// Add a set of cookie attributes to a domain.
     pub fn add_cookie<'p, P>(&mut self, mut segments: Vec<&str>, path: P, attributes: Attributes)
     where
@@ -152,6 +173,25 @@ impl Domain {
                 .add_cookie(segments, path, attributes);
         } else {
             self.path.add_cookie(path, attributes);
+        }
+    }
+
+    /// Get all of the attributes that match a given request URL.
+    pub fn match_url<'c, 'p, P>(&'c self, mut segments: Vec<&str>, path: P)
+        -> Box<Iterator<Item = &'c Pair> + 'c>
+    where
+        P: Iterator<Item = &'p str> + 'p + Clone,
+    {
+
+        if let Some(child) = segments.pop() {
+            let iter = self.path.match_url(path.clone(), HostMatch::Suffix);
+            if let Some(child) = self.children.get(child) {
+                Box::new(iter.chain(child.match_url(segments, path)))
+            } else {
+                Box::new(iter)
+            }
+        } else {
+            Box::new(self.path.match_url(path, HostMatch::Exact))
         }
     }
 }
@@ -171,14 +211,6 @@ struct Path {
 }
 
 impl Path {
-    /// Finds all of the matching attributes for a given url.
-    pub fn url_matches<'j>(&'j self, url: &'j Url) -> Box<dyn Iterator<Item = &'j Attributes> + 'j> {
-        let iter = self.children.iter()
-            .filter(parent_paths(url))
-            .flat_map(move |(_, v)| v.url_matches(url));
-        Box::new(iter)
-    }
-
     /// Add a cookie to the matching path.
     pub fn add_cookie<'s, S>(&mut self, mut segments: S, attributes: Attributes)
     where
@@ -193,18 +225,28 @@ impl Path {
             self.cookies.insert(attributes.pair().name().to_owned(), attributes);
         }
     }
-}
 
-fn parent_domains<'u, T>(url: &'u Url) -> impl (FnMut(&(&String, T)) -> bool) + 'u {
-    move |(parent, _)| {
-        if let Some(domain) = url.domain() {
-            domain.ends_with(parent.as_str())
+    /// Get all of the attributes that match a given request URL.
+    pub fn match_url<'c, 's, S>(&'c self, mut segments: S, host: HostMatch)
+        -> Box<Iterator<Item = &'c Pair> + 'c>
+    where
+        S: Iterator<Item = &'s str> + 's,
+    {
+        let iter = self.cookies.values()
+            .filter(move |attributes| match host {
+                HostMatch::Exact => true,
+                HostMatch::Suffix => !attributes.host_only(),
+            })
+            .map(Attributes::pair);
+
+        if let Some(child) = segments.next() {
+            if let Some(child) = self.children.get(child) {
+                Box::new(iter.chain(child.match_url(segments, host)))
+            } else {
+                Box::new(iter)
+            }
         } else {
-            false
+            Box::new(iter)
         }
     }
-}
-
-fn parent_paths<'u, T>(url: &'u Url) -> impl (FnMut(&(&String, T)) -> bool) + 'u {
-    move |(parent, _)| url.path().starts_with(parent.as_str())
 }
