@@ -14,6 +14,9 @@ extern crate pretty_assertions;
 extern crate time;
 extern crate url;
 
-pub mod cookie;
+mod cookie;
 pub mod error;
-pub mod jar;
+mod jar;
+
+pub use cookie::*;
+pub use jar::{Jar, Clock};

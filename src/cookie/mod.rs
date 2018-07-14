@@ -461,6 +461,14 @@ impl Attributes {
     }
 }
 
+impl Deref for Attributes {
+    type Target = Pair;
+
+    fn deref(&self) -> &Pair {
+        &self.pair
+    }
+}
+
 impl ::std::string::ToString for SetCookie {
     fn to_string(&self) -> String {
         let mut cookie = self.pair.as_str().to_owned();
