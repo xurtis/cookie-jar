@@ -103,22 +103,22 @@ impl<T: Clock> Jar<T> {
         match url.host() {
             Some(Host::Domain(domain)) => {
                 let domain_segments: Vec<_> = domain.trim_matches('.').split('.').collect();
-                self.domain.match_url(domain_segments, path_segments)
+                self.domain.match_url(url.into(), domain_segments, path_segments)
             }
-            Some(Host::Ipv4(addr)) => self.host_matches(IpAddr::V4(addr), path_segments),
-            Some(Host::Ipv6(addr)) => self.host_matches(IpAddr::V6(addr), path_segments),
+            Some(Host::Ipv4(addr)) => self.host_matches(url.into(), IpAddr::V4(addr), path_segments),
+            Some(Host::Ipv6(addr)) => self.host_matches(url.into(), IpAddr::V6(addr), path_segments),
             _ => Box::new(iter::empty()),
         }
     }
 
     /// Get all of the matches for a specific host.
-    fn host_matches<'j, 's, S>(&'j self, host: IpAddr, segments: S)
+    fn host_matches<'j, 's, S>(&'j self, transport: Scheme<'j>, host: IpAddr, segments: S)
         -> Box<Iterator<Item = &'j Pair> + 'j>
     where
         S: Iterator<Item = &'s str> + 's,
     {
         if let Some(host) = self.hosts.get(&host) {
-            host.match_url(segments, HostMatch::Exact)
+            host.match_url(transport, segments, HostMatch::Exact)
         } else {
             Box::new(iter::empty())
         }
@@ -130,6 +130,47 @@ impl<T: Clock> Jar<T> {
 enum HostMatch {
     Exact,
     Suffix,
+}
+
+impl HostMatch {
+    fn filter(self) -> impl FnMut(&&Attributes) -> bool {
+        move |attributes| match self {
+            HostMatch::Exact => true,
+            HostMatch::Suffix => !attributes.host_only(),
+        }
+    }
+}
+
+/// The transport scheme for a URI.
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum Scheme<'u> {
+    Http,
+    Https,
+    Other(&'u str),
+}
+
+impl<'u> From<&'u Url> for Scheme<'u> {
+    fn from(url: &'u Url) -> Scheme<'u> {
+        match url.scheme() {
+            "http" => Scheme::Http,
+            "https" => Scheme::Http,
+            scheme => Scheme::Other(scheme)
+        }
+    }
+}
+
+impl<'u> Scheme<'u> {
+    fn filter(self) -> impl (FnMut(&&Attributes) -> bool) + 'u {
+        move |attribute: &&Attributes| {
+            match (attribute.http_only(), attribute.secure(), self) {
+                (true, true, Scheme::Https) => true,
+                (true, false, Scheme::Https) => true,
+                (true, false, Scheme::Http) => true,
+                (false, false, _) => true,
+                _ => false,
+            }
+        }
+    }
 }
 
 /// The heirarchy of domains.
@@ -155,21 +196,20 @@ impl Domain {
     }
 
     /// Get all of the attributes that match a given request URL.
-    pub fn match_url<'c, 'p, P>(&'c self, mut segments: Vec<&str>, path: P)
+    pub fn match_url<'c, 'p, P>(&'c self, transport: Scheme<'c>, mut segments: Vec<&str>, path: P)
         -> Box<Iterator<Item = &'c Pair> + 'c>
     where
         P: Iterator<Item = &'p str> + 'p + Clone,
     {
-
         if let Some(child) = segments.pop() {
-            let iter = self.path.match_url(path.clone(), HostMatch::Suffix);
+            let iter = self.path.match_url(transport, path.clone(), HostMatch::Suffix);
             if let Some(child) = self.children.get(child) {
-                Box::new(iter.chain(child.match_url(segments, path)))
+                Box::new(iter.chain(child.match_url(transport, segments, path)))
             } else {
                 Box::new(iter)
             }
         } else {
-            Box::new(self.path.match_url(path, HostMatch::Exact))
+            Box::new(self.path.match_url(transport, path, HostMatch::Exact))
         }
     }
 }
@@ -198,21 +238,19 @@ impl Path {
     }
 
     /// Get all of the attributes that match a given request URL.
-    pub fn match_url<'c, 's, S>(&'c self, mut segments: S, host: HostMatch)
+    pub fn match_url<'c, 's, S>(&'c self, transport: Scheme<'c>, mut segments: S, host: HostMatch)
         -> Box<Iterator<Item = &'c Pair> + 'c>
     where
         S: Iterator<Item = &'s str> + 's,
     {
         let iter = self.cookies.values()
-            .filter(move |attributes| match host {
-                HostMatch::Exact => true,
-                HostMatch::Suffix => !attributes.host_only(),
-            })
+            .filter(host.filter())
+            .filter(transport.filter())
             .map(Attributes::pair);
 
         if let Some(child) = segments.next() {
             if let Some(child) = self.children.get(child) {
-                Box::new(iter.chain(child.match_url(segments, host)))
+                Box::new(iter.chain(child.match_url(transport, segments, host)))
             } else {
                 Box::new(iter)
             }
