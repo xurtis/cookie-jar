@@ -1,6 +1,6 @@
 [package]
 name = "cookie-jar"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Curtis Millar <curtis@curtism.me>"]
 description = "Implementation of a RFC6265 compliant cookie store."
 repository = "https://github.com/xurtis/cookie-jar"
