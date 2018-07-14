@@ -11,10 +11,11 @@
 //! subdomains. Similarly, each domain contains its root path which branches out into its
 //! sub-paths.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
+use std::net::IpAddr;
+use std::path;
 
-use url::Url;
+use url::{Url, Host};
 use time::{Tm, now_utc};
 
 use ::cookie::{Cookie, Attributes, Pair};
@@ -52,6 +53,7 @@ impl Clock for ClockFn {
 pub struct Jar<T: Clock> {
     clock: T,
     domain: Domain,
+    hosts: HashMap<IpAddr, Path>,
 }
 
 impl Default for Jar<ClockFn> {
@@ -59,6 +61,7 @@ impl Default for Jar<ClockFn> {
         Jar {
             clock: now_utc,
             domain: Default::default(),
+            hosts: Default::default(),
         }
     }
 }
@@ -66,10 +69,7 @@ impl Default for Jar<ClockFn> {
 impl<T: Clock> Jar<T> {
     /// Create a new empty jar.
     pub fn new() -> Jar<ClockFn> {
-        Jar {
-            clock: now_utc,
-            domain: Default::default(),
-        }
+        Default::default()
     }
 
     /// Create a jar with a specific time source.
@@ -77,12 +77,36 @@ impl<T: Clock> Jar<T> {
         Jar {
             clock: clock,
             domain: Default::default(),
+            hosts: Default::default(),
         }
     }
 
     /// Add a cookie to the jar.
-    pub fn add_cookie(&mut self, cookie: &Cookie) {
-        unimplemented!()
+    pub fn add_cookie(&mut self, cookie: Cookie) {
+        let (host, path, attributes) = cookie.explode();
+        let path_segments = path.trim_left_matches('/').split('/');
+        match host {
+            Host::Domain(domain) => {
+                let domain_segments: Vec<_> = domain.trim_matches('.').split('.').collect();
+                self.domain.add_cookie(domain_segments, path_segments, attributes);
+            }
+            Host::Ipv4(addr) => {
+                self.update_host(IpAddr::V4(addr), path_segments, attributes);
+            }
+            Host::Ipv6(addr) => {
+                self.update_host(IpAddr::V6(addr), path_segments, attributes);
+            }
+        }
+    }
+
+    /// Update a cookie for a host.
+    fn update_host<'s, S>(&mut self, host: IpAddr, segments: S, attributes: Attributes)
+    where
+        S: Iterator<Item = &'s str> + 's,
+    {
+        self.hosts.entry(host)
+            .or_insert_with(Path::default)
+            .add_cookie(segments, attributes);
     }
 
     /// Take all cookies from a reciever.
@@ -116,12 +140,33 @@ impl Domain {
             .chain(self.path.url_matches(url));
         Box::new(iter)
     }
+
+    /// Add a set of cookie attributes to a domain.
+    pub fn add_cookie<'p, P>(&mut self, mut segments: Vec<&str>, path: P, attributes: Attributes)
+    where
+        P: Iterator<Item = &'p str> + 'p,
+    {
+        if let Some(child) = segments.pop() {
+            self.children.entry(child.to_owned())
+                .or_insert_with(Domain::default)
+                .add_cookie(segments, path, attributes);
+        } else {
+            self.path.add_cookie(path, attributes);
+        }
+    }
+}
+
+/// A wrapper around a cookie producing fragments of the domain.
+struct DomainFragments {
+    cookie: Cookie,
+    start: usize,
+    length: usize,
 }
 
 /// The heriarchy of paths.
 #[derive(Debug, Default)]
 struct Path {
-    cookies: Vec<Attributes>,
+    cookies: HashMap<String, Attributes>,
     children: HashMap<String, Path>,
 }
 
@@ -133,10 +178,21 @@ impl Path {
             .flat_map(move |(_, v)| v.url_matches(url));
         Box::new(iter)
     }
-}
 
-/// An iterator over the paths matching a URL.
-struct PathMatches {
+    /// Add a cookie to the matching path.
+    pub fn add_cookie<'s, S>(&mut self, mut segments: S, attributes: Attributes)
+    where
+        S: Iterator<Item = &'s str> + 's,
+    {
+        if let Some(child) = segments.next() {
+            self.children
+                .entry(child.to_owned())
+                .or_insert_with(Path::default)
+                .add_cookie(segments, attributes);
+        } else {
+            self.cookies.insert(attributes.pair().name().to_owned(), attributes);
+        }
+    }
 }
 
 fn parent_domains<'u, T>(url: &'u Url) -> impl (FnMut(&(&String, T)) -> bool) + 'u {
