@@ -7,29 +7,42 @@ use std::ops::Deref;
 use self::parse::{process_cookie, Argument};
 pub use self::parse::Pair;
 use error::*;
-use idna::domain_to_ascii;
 use time::{now_utc, strftime, Tm};
 use url::{Host, Url};
 
 /// A builder for a cookie.
-#[derive(Debug)]
-pub enum Builder {
-    /// A partially constructed cookie.
-    Cookie(SetCookie),
+#[derive(Default, Debug)]
+pub struct Builder {
+    /// The associated host for the cookie.
+    host: Option<Host>,
 
-    /// An error.
-    Err(Error),
+    /// The associated path for the cookie.
+    path: Option<String>,
+
+    /// The cookie attributes.
+    attributes: Attributes,
+
+    /// Any error that has occured.
+    error: Option<Error>,
 }
 
 impl From<parser::Error> for Builder {
     fn from(e: parser::Error) -> Builder {
-        Builder::Err(e.into())
+        Builder {
+            error: Some(e.into()),
+            ..
+            Builder::default()
+        }
     }
 }
 
 impl From<Error> for Builder {
     fn from(e: Error) -> Builder {
-        Builder::Err(e)
+        Builder {
+            error: Some(e),
+            ..
+            Builder::default()
+        }
     }
 }
 
@@ -38,188 +51,208 @@ impl Builder {
     ///
     /// The default cookie applies only to the root domain and to all paths beneath it.
     pub fn new() -> Builder {
-        Builder::Cookie(Default::default())
+        Builder::default()
+    }
+
+    /// Set the error of the builder.
+    fn error(mut self, error: Error) -> Builder {
+        if self.error.is_none() {
+            self.error = Some(error);
+        }
+        self
     }
 
     /// Set the origin from which the cookie came.
     pub fn origin(self, origin: &Url) -> Builder {
         if let Some(host) = origin.host() {
-            self
-                .host(host.to_owned())
-                .path(url_dir_path(origin))
+            Builder {
+                host: Some(host.to_owned()),
+                path: Some(url_dir_path(origin).to_owned()),
+                attributes: Attributes {
+                    host_only: true,
+                    ..
+                    self.attributes
+                },
+                ..
+                self
+            }
         } else {
-            Builder::Err(ErrorKind::InvalidOrigin(origin.clone()).into())
+            self.error(ErrorKind::InvalidOrigin(origin.clone()).into())
         }
     }
 
     /// Set the domain for the cookie to match a single domain.
     pub fn host(self, host: Host) -> Builder {
-        self.map(|set_cookie| {
-            Ok(SetCookie {
-                domain: Some(Domain::from_host(host)?),
-                ..
-                set_cookie
-            })
-        }).map_attributes(|attributes| {
-            Ok(Attributes {
+        Builder {
+            host: Some(host),
+            attributes: Attributes {
                 host_only: true,
                 ..
-                attributes
-            })
-        })
-
+                self.attributes
+            },
+            ..
+            self
+        }
     }
 
     /// Set the host for a cookie to match a given string.
     pub fn host_str(self, host: &str) -> Builder {
         match Host::parse(host) {
             Ok(host) => self.host(host),
-            Err(error) => Builder::Err(error.into()),
+            Err(error) => self.error(error.into()),
         }
     }
 
     /// Set the domain for a cookie to match a a given domain and all subdomains.
     pub fn domain(self, domain: &str) -> Builder {
-        self.map(|set_cookie| {
-            Ok(SetCookie {
-                domain: Some(Domain::Suffix(domain_to_ascii(domain)?)),
+        match Host::parse(domain) {
+            Ok(host) => Builder {
+                host: Some(host),
+                attributes: Attributes {
+                    host_only: false,
+                    ..
+                    self.attributes
+                },
                 ..
-                set_cookie
-            })
-        }).map_attributes(|attributes| {
-            Ok(Attributes {
-                host_only: false,
-                ..
-                attributes
-            })
-        })
+                self
+            },
+            Err(error) => self.error(error.into()),
+        }
     }
 
     /// Set the path for a cookie to be matched in.
     pub fn path(self, path: &str) -> Builder {
-        self.map(|set_cookie| {
-            Ok(SetCookie {
-                path: Some(path.to_owned()),
-                ..
-                set_cookie
-            })
-        })
+        Builder {
+            path: Some(path.to_owned()),
+            ..
+            self
+        }
     }
 
     /// Set the key, value pair for the cookie.
     pub fn pair(self, pair: Pair) -> Builder {
-        self.map_attributes(|attributes| {
-            Ok(Attributes {
+        Builder {
+            attributes: Attributes {
                 pair: pair,
                 ..
-                attributes
-            })
-        })
+                self.attributes
+            },
+            ..
+            self
+        }
     }
 
     /// Set the key, value pair for the cookie from a string.
     pub fn pair_str(self, pair: &str) -> Builder {
         match pair.parse() {
             Ok(pair) => self.pair(pair),
-            Err(error) => Builder::Err(error.into())
+            Err(error) => self.error(error.into())
         }
     }
 
     /// Set the expiry time of a cookie.
     pub fn expiry(self, time: Tm) -> Builder {
-        self.map_attributes(|attributes| {
-            Ok(Attributes {
+        Builder {
+            attributes: Attributes {
                 expiry: Expires::AtUtc(time),
                 ..
-                attributes
-            })
-        })
+                self.attributes
+            },
+            ..
+            self
+        }
     }
 
     /// Set whether or not the cookie requires a secure connection.
     pub fn secure(self, secure: bool) -> Builder {
-        self.map_attributes(|attributes| {
-            Ok(Attributes {
+        Builder {
+            attributes: Attributes {
                 secure: secure,
                 ..
-                attributes
-            })
-        })
+                self.attributes
+            },
+            ..
+            self
+        }
     }
 
     /// Set whether a cookie should only be sent of HTTP/HTTPS connections.
     pub fn http_only(self, http_only: bool) -> Builder {
-        self.map_attributes(|attributes| {
-            Ok(Attributes {
+        Builder {
+            attributes: Attributes {
                 http_only: http_only,
                 ..
-                attributes
-            })
-        })
+                self.attributes
+            },
+            ..
+            self
+        }
     }
 
     /// Build the SetCookie.
     pub fn build_set_cookie(self) -> Result<SetCookie> {
         match self {
-            Builder::Cookie(set_cookie) => Ok(set_cookie),
-            Builder::Err(error) => Err(error),
+            Builder {
+                host: _,
+                path: _,
+                attributes: _,
+                error: Some(error),
+            } => Err(error),
+            Builder {
+                host: Some(Host::Domain(domain)),
+                path,
+                attributes,
+                error: None,
+            } => Ok(SetCookie {
+                domain: Some(domain),
+                path: path,
+                attributes: attributes,
+            }),
+            Builder {
+                host: None,
+                path,
+                attributes,
+                error: None,
+            } => Ok(SetCookie {
+                domain: None,
+                path: path,
+                attributes: attributes,
+            }),
+            _ => Err(ErrorKind::HostInvalid.into()),
         }
     }
 
     /// Build the Cookie.
     pub fn build_cookie(self) -> Result<Cookie> {
         match self {
-            Builder::Cookie( SetCookie {
-                domain: None,
+            Builder {
+                host: _,
                 path: _,
                 attributes: _,
-            }) => Err(ErrorKind::MissingDomain.into()),
-            Builder::Cookie( SetCookie {
-                domain: _,
+                error: Some(error),
+            } => Err(error),
+            Builder {
+                host: None,
+                path: _,
+                attributes: _,
+                error: None,
+            } => Err(ErrorKind::MissingDomain.into()),
+            Builder {
+                host: _,
                 path: None,
                 attributes: _,
-            }) => Err(ErrorKind::MissingDomain.into()),
-            Builder::Cookie( SetCookie {
-                domain: Some(domain),
+                error: None,
+            } => Err(ErrorKind::MissingDomain.into()),
+            Builder {
+                host: Some(host),
                 path: Some(path),
                 attributes,
-            }) => Ok(Cookie {
-                domain: domain,
+                error: None,
+            } => Ok(Cookie {
+                host: host,
                 path: path,
                 attributes: attributes,
             }),
-            Builder::Err(error) => Err(error),
-        }
-    }
-
-    fn map<F>(self, f: F) -> Builder
-    where
-        F: FnOnce(SetCookie) -> Result<SetCookie>,
-    {
-        match self {
-            Builder::Cookie(set_cookie) => match f(set_cookie) {
-                Ok(set_cookie) => Builder::Cookie(set_cookie),
-                Err(error) => Builder::Err(error),
-            },
-            _ => return self,
-        }
-    }
-
-    fn map_attributes<F>(self, f:F) -> Builder
-    where
-        F: FnOnce(Attributes) -> Result<Attributes>
-    {
-        if let Builder::Cookie(set_cookie) = self {
-            match f(set_cookie.attributes) {
-                Ok(attributes) => Builder::Cookie( SetCookie {
-                    attributes: attributes,
-                    ..
-                    set_cookie
-                }),
-                Err(error) => Builder::Err(error),
-            }
-        } else {
-            self
         }
     }
 
@@ -265,7 +298,7 @@ impl Builder {
 #[derive(Debug, Default)]
 pub struct SetCookie {
     /// Domain or host restriction of the cookie.
-    domain: Option<Domain>,
+    domain: Option<String>,
 
     /// Path restriction of the cookie.
     path: Option<String>,
@@ -289,19 +322,8 @@ impl SetCookie {
     }
 
     /// Get the domain or host the cookie applies to.
-    pub fn domain(&self) -> Option<&Domain> {
-        self.domain.as_ref()
-    }
-
-    /// Get the domain name associated with the cookie.
-    ///
-    /// None if the cookie is host-only for an IP address.
-    pub fn domain_name(&self) -> Option<&str> {
-        match self.domain {
-            Some(Domain::Suffix(ref domain)) => Some(&domain),
-            Some(Domain::Host(Host::Domain(ref domain))) => Some(&domain),
-            _ => None,
-        }
+    pub fn domain(&self) -> Option<&str> {
+        self.domain.as_ref().map(String::as_str)
     }
 
     /// Get the path the cookie applies to.
@@ -312,10 +334,10 @@ impl SetCookie {
 
 /// This is the form that the cookie is represented in within the jar.
 /// It is formed by parsing the provided string into a cookie object.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Cookie {
     /// Domain or host restriction of the cookie.
-    domain: Domain,
+    host: Host,
 
     /// Path restriction of the cookie.
     path: String,
@@ -342,17 +364,16 @@ impl Cookie {
     }
 
     /// Get the domain or host the cookie applies to.
-    pub fn domain(&self) -> &Domain {
-        &self.domain
+    pub fn host(&self) -> &Host {
+        &self.host
     }
 
     /// Get the domain name associated with the cookie.
     ///
     /// None if the cookie is host-only for an IP address.
-    pub fn domain_name(&self) -> Option<&str> {
-        match self.domain {
-            Domain::Suffix(ref domain) => Some(&domain),
-            Domain::Host(Host::Domain(ref domain)) => Some(&domain),
+    pub fn domain(&self) -> Option<&str> {
+        match self.host {
+            Host::Domain(ref host) => Some(&host),
             _ => None,
         }
     }
@@ -360,6 +381,11 @@ impl Cookie {
     /// Get the path the cookie applies to.
     pub fn path(&self) -> &str {
         self.path.as_str()
+    }
+
+    pub(crate) fn explode(self) -> (Host, String, Attributes) {
+        let Cookie { host, path, attributes } = self;
+        (host, path, attributes)
     }
 }
 
@@ -443,7 +469,7 @@ impl ::std::string::ToString for SetCookie {
             cookie = format!("{}; Path={}", cookie, path);
         }
 
-        if let Some(Domain::Suffix(ref domain)) = self.domain {
+        if let Some(ref domain) = self.domain {
             cookie = format!("{}; Domain={}", cookie, domain);
         }
 
@@ -481,34 +507,6 @@ pub enum Expires {
 impl Default for Expires {
     fn default() -> Expires {
         Expires::Never
-    }
-}
-
-/// Domain for a specific cookie
-///
-/// The default domain is for the "0.0.0.0" host and should not match any requests.
-#[derive(Debug, Eq, PartialEq)]
-pub enum Domain {
-    /// The cookies only applies to a specific host.
-    Host(Host),
-    /// The cookie applies the given domain and all subdomains.
-    Suffix(String),
-}
-
-impl Default for Domain {
-    fn default() -> Domain {
-        use std::net::Ipv4Addr;
-        Domain::Host(Host::Ipv4(Ipv4Addr::new(0, 0, 0, 0)))
-    }
-}
-
-impl Domain {
-    fn from_host(host: Host) -> Result<Domain> {
-        let host = match host {
-            Host::Domain(domain) => Host::Domain(domain_to_ascii(&domain)?),
-            host => host,
-        };
-        Ok(Domain::Host(host))
     }
 }
 

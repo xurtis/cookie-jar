@@ -24,10 +24,13 @@ error_chain!{
             display("InvalidOrigin({})", url),
         }
         MissingDomain {
-            description("No domain was provided for the cookie.")
+            description("No domain was provided for the cookie")
         }
         MissingPath {
-            description("No path was provided for the cookie.")
+            description("No path was provided for the cookie")
+        }
+        HostInvalid {
+            description("Invalid to provide an IP address for a SetCookie")
         }
     }
 }
