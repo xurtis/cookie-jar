@@ -20,18 +20,6 @@ use time::{Tm, now_utc};
 
 use ::cookie::{Cookie, Attributes, Pair, url_dir_path};
 
-/// A carrier of cookies being sent to a server.
-///
-/// This trait represents somthing that is used to send cookies. Usually some
-/// representation of a HTTP request.
-pub trait Carrier {
-    /// The URL for which a request is being sent.
-    fn url(&self) -> &Url;
-
-    /// Add a cookie onto the sender.
-    fn cookies(&mut self);
-}
-
 /// Something that produces the current UTC time.
 pub trait Clock {
 
