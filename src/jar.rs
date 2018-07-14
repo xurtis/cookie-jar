@@ -14,7 +14,6 @@
 use std::collections::HashMap;
 use std::iter;
 use std::net::IpAddr;
-use std::path;
 
 use url::{Url, Host};
 use time::{Tm, now_utc};
@@ -110,15 +109,6 @@ impl<T: Clock> Jar<T> {
             .add_cookie(segments, attributes);
     }
 
-    /// Take all cookies from a reciever.
-    pub fn take_cookies<I, C>(&mut self, cookies: I)
-    where
-        I: Iterator<Item = C>,
-        C: AsRef<Cookie>,
-    {
-        unimplemented!()
-    }
-
     /// Get the matching cookies for a Url.
     pub fn url_matches<'j>(&'j self, url: &'j Url) -> impl Iterator<Item = &'j Pair> {
         let path_segments = url_dir_path(url).trim_left_matches('/').split('/');
@@ -194,13 +184,6 @@ impl Domain {
             Box::new(self.path.match_url(path, HostMatch::Exact))
         }
     }
-}
-
-/// A wrapper around a cookie producing fragments of the domain.
-struct DomainFragments {
-    cookie: Cookie,
-    start: usize,
-    length: usize,
 }
 
 /// The heriarchy of paths.

@@ -237,9 +237,9 @@ impl Date {
 
             // Try and decode the time from the token.
             Date::try_replace(token, &mut self.time, decode_time)
-                || Date::try_replace(token, &mut self.day, decode_day)
-                || Date::try_replace(token, &mut self.month, decode_month)
-                || Date::try_replace(token, &mut self.year, decode_year);
+                .or_else(|| Date::try_replace(token, &mut self.day, decode_day))
+                .or_else(|| Date::try_replace(token, &mut self.month, decode_month))
+                .or_else(|| Date::try_replace(token, &mut self.year, decode_year));
         }
 
         Ok(())
@@ -279,20 +279,20 @@ impl Date {
     }
 
     /// Try and replace a given field of the date.
-    fn try_replace<T, F>(token: &[u8], field: &mut Option<T>, decode: F) -> bool
+    fn try_replace<T, F>(token: &[u8], field: &mut Option<T>, decode: F) -> Option<()>
     where
         F: Fn(&[u8]) -> Option<T>,
     {
         if field.is_none() {
             match decode(token) {
-                None => false,
+                None => None,
                 value => {
                     *field = value;
-                    true
+                    Some(())
                 }
             }
         } else {
-            false
+            None
         }
     }
 }
