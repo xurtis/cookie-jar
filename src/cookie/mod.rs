@@ -571,17 +571,27 @@ impl<'u> From<&'u Url> for Scheme<'u> {
 }
 
 impl<'u> Scheme<'u> {
-    fn is_http(&self) -> bool {
+    pub(crate) fn is_http(&self) -> bool {
         match self {
             Scheme::Http | Scheme::Https => true,
             _ => false,
         }
     }
 
-    fn is_secure(&self) -> bool {
+    pub(crate) fn is_secure(&self) -> bool {
         match self {
             Scheme::Https => true,
             _ => false,
+        }
+    }
+
+    pub(crate) fn fulfils(&self, attributes: &Attributes) -> bool {
+        if attributes.secure() && !self.is_secure() {
+            false
+        } else if attributes.http_only() && !self.is_http() {
+            false
+        } else {
+            true
         }
     }
 }

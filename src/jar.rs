@@ -141,20 +141,6 @@ impl HostMatch {
     }
 }
 
-impl<'u> Scheme<'u> {
-    fn filter(self) -> impl (FnMut(&&Attributes) -> bool) + 'u {
-        move |attribute: &&Attributes| {
-            match (attribute.http_only(), attribute.secure(), self) {
-                (true, true, Scheme::Https) => true,
-                (true, false, Scheme::Https) => true,
-                (true, false, Scheme::Http) => true,
-                (false, false, _) => true,
-                _ => false,
-            }
-        }
-    }
-}
-
 /// The heirarchy of domains.
 #[derive(Debug, Default)]
 struct Domain {
@@ -226,8 +212,8 @@ impl Path {
         S: Iterator<Item = &'s str> + 's,
     {
         let iter = self.cookies.values()
+            .filter(move |attrs| transport.fulfils(attrs))
             .filter(host.filter())
-            .filter(transport.filter())
             .map(Attributes::pair);
 
         if let Some(child) = segments.next() {
